@@ -26,13 +26,13 @@ const ResultTable = ({ initialText, onAddRecord }) => {
   }, [initialText]);
 
   // Agrega la captura (todas las celdas no vacías de la tabla) como un registro
-  const handleAddRecord = () => {
+  const handleAddRecord = (next) => {
     const valores = rows.flatMap(({ col1, col2 }) => [col1, col2]).map(v => v.trim()).filter(Boolean);
     if (valores.length === 0) {
       setNotice({ ok: false, msg: 'No hay datos para agregar.' });
       return;
     }
-    setNotice(onAddRecord(valores));
+    setNotice(onAddRecord(valores, next));
   };
 
   const handleEdit = (id, field, value) => {
@@ -106,10 +106,16 @@ const ResultTable = ({ initialText, onAddRecord }) => {
       {onAddRecord && (
         <div className="mt-4">
           <button
-            onClick={handleAddRecord}
+            onClick={() => handleAddRecord(true)}
             className="w-full flex items-center justify-center gap-2 bg-primary text-white py-3 rounded-lg font-bold hover:bg-blue-700 transition"
           >
-            <ListPlus size={18} /> Agregar al registro
+            <ListPlus size={18} /> Agregar y siguiente
+          </button>
+          <button
+            onClick={() => handleAddRecord(false)}
+            className="mt-2 w-full text-sm py-2 rounded-lg border border-gray-300 dark:border-gray-600 hover:bg-gray-100 dark:hover:bg-gray-700 transition"
+          >
+            Solo agregar al registro
           </button>
           {notice && (
             <p

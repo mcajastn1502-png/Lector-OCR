@@ -271,3 +271,35 @@ function findComponents(bin, w, h) {
   }
   return { comps, labels };
 }
+
+/** Recorta un archivo de imagen a una región (fracciones 0-1) y devuelve un File JPEG. */
+export function cropFileByRect(file, rect, quality = 0.95) {
+  return new Promise((resolve, reject) => {
+    const url = URL.createObjectURL(file);
+    const img = new Image();
+    img.onload = () => {
+      URL.revokeObjectURL(url);
+      const sx = Math.round(img.naturalWidth * rect.x);
+      const sy = Math.round(img.naturalHeight * rect.y);
+      const sw = Math.max(1, Math.round(img.naturalWidth * rect.w));
+      const sh = Math.max(1, Math.round(img.naturalHeight * rect.h));
+      const canvas = document.createElement('canvas');
+      canvas.width = sw;
+      canvas.height = sh;
+      canvas.getContext('2d').drawImage(img, sx, sy, sw, sh, 0, 0, sw, sh);
+      canvas.toBlob(
+        (blob) =>
+          blob
+            ? resolve(new File([blob], `recorte_${Date.now()}.jpg`, { type: 'image/jpeg' }))
+            : reject(new Error('No se pudo recortar la imagen')),
+        'image/jpeg',
+        quality
+      );
+    };
+    img.onerror = () => {
+      URL.revokeObjectURL(url);
+      reject(new Error('No se pudo abrir la imagen'));
+    };
+    img.src = url;
+  });
+}
