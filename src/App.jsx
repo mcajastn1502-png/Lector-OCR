@@ -1,7 +1,9 @@
 import React, { useState, useRef, useEffect } from 'react';
 import Tesseract from 'tesseract.js';
-import { Camera, Upload, Loader2, Sun, Moon, Copy, CheckCircle } from 'lucide-react';
+import { Camera, Upload, Loader2, Sun, Moon, Copy, CheckCircle, Crop } from 'lucide-react';
 import { preprocessImage } from './utils/imageUtils';
+import CameraCapture from './components/CameraCapture';
+import CropEditor from './components/CropEditor';
 import ResultTable from './components/ResultTable';
 import HistoryList from './components/HistoryList';
 
@@ -13,6 +15,9 @@ function App() {
   const [progress, setProgress] = useState(0);
   const [lang, setLang] = useState('spa');
   const [sourceFile, setSourceFile] = useState(null);
+  const [showCamera, setShowCamera] = useState(false);
+  const [cropState, setCropState] = useState(null); // { file, initial } mientras se edita el recorte
+  const [original, setOriginal] = useState(null);   // { file, rect } para poder reencuadrar
   const [mode, setMode] = useState('label'); // 'label' = etiquetas/códigos, 'document' = texto impreso
   const [darkMode, setDarkMode] = useState(false);
   const [history, setHistory] = useState([]);
@@ -53,15 +58,25 @@ function App() {
     return () => { cancelled = true; };
   }, [sourceFile, mode]);
 
+  // Toda imagen (cámara en vivo o archivo) pasa primero por el editor de recorte
   const handleImageUpload = (e) => {
     const file = e.target.files[0];
-    if (file) {
-      setImage(URL.createObjectURL(file));
-      setText('');
-      setCopied(false);
-      setSourceFile(file);
-    }
+    if (file) setCropState({ file, initial: undefined });
     e.target.value = ''; // permite volver a elegir la misma foto
+  };
+
+  const handleCameraCapture = (file, guideRect) => {
+    setShowCamera(false);
+    setCropState({ file, initial: guideRect });
+  };
+
+  const handleCropConfirm = (croppedFile, rect) => {
+    setOriginal({ file: cropState.file, rect });
+    setImage(URL.createObjectURL(croppedFile));
+    setText('');
+    setCopied(false);
+    setSourceFile(croppedFile);
+    setCropState(null);
   };
 
   const runOCR = async () => {
@@ -143,19 +158,24 @@ function App() {
         
         {/* Controles de Imagen */}
         <div className="w-full flex flex-col md:flex-row gap-4 justify-center items-center">
-          <button 
-            onClick={() => fileInputRef.current.click()}
+          <button
+            onClick={() => setShowCamera(true)}
             className="flex items-center gap-2 bg-primary text-white px-6 py-3 rounded-lg shadow hover:bg-blue-700 transition w-full md:w-auto justify-center"
           >
-            <Upload size={20} /> Subir / Tomar Foto
+            <Camera size={20} /> Abrir cámara
           </button>
-          <input 
-            type="file" 
-            ref={fileInputRef} 
-            onChange={handleImageUpload} 
-            accept="image/*" 
-            capture="environment" // Fuerza cámara trasera en móviles
-            className="hidden" 
+          <button
+            onClick={() => fileInputRef.current.click()}
+            className="flex items-center gap-2 bg-gray-200 dark:bg-gray-700 px-6 py-3 rounded-lg shadow hover:bg-gray-300 dark:hover:bg-gray-600 transition w-full md:w-auto justify-center"
+          >
+            <Upload size={20} /> Subir imagen
+          </button>
+          <input
+            type="file"
+            ref={fileInputRef}
+            onChange={handleImageUpload}
+            accept="image/*"
+            className="hidden"
           />
           
           <select 
@@ -185,8 +205,17 @@ function App() {
               <img src={processedImage} alt="Preview" className="max-h-64 mx-auto rounded object-contain border dark:border-gray-700" />
             </div>
             
-            <button 
-              onClick={runOCR} 
+            {original && (
+              <button
+                onClick={() => setCropState({ file: original.file, initial: original.rect })}
+                className="mt-3 w-full flex justify-center items-center gap-2 py-2 rounded-lg border border-gray-300 dark:border-gray-600 text-sm hover:bg-gray-100 dark:hover:bg-gray-700 transition"
+              >
+                <Crop size={16} /> Reencuadrar
+              </button>
+            )}
+
+            <button
+              onClick={runOCR}
               disabled={loading}
               className="mt-4 w-full bg-blue-600 text-white py-3 rounded-lg font-bold hover:bg-blue-700 disabled:opacity-50 flex justify-center items-center gap-2 transition"
             >
@@ -225,6 +254,18 @@ function App() {
         />
 
       </main>
+
+      {showCamera && (
+        <CameraCapture onCapture={handleCameraCapture} onClose={() => setShowCamera(false)} />
+      )}
+      {cropState && (
+        <CropEditor
+          file={cropState.file}
+          initial={cropState.initial}
+          onConfirm={handleCropConfirm}
+          onCancel={() => setCropState(null)}
+        />
+      )}
     </div>
   );
 }
