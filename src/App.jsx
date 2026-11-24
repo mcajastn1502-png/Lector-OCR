@@ -1,5 +1,5 @@
 import React, { useState, useRef, useEffect } from 'react';
-import Tesseract from 'tesseract.js';
+import { preloadEngine, recognizeText } from './utils/ocrEngine';
 import { Camera, Upload, Loader2, Sun, Moon, Copy, CheckCircle, Crop } from 'lucide-react';
 import { preprocessImage } from './utils/imageUtils';
 import CameraCapture from './components/CameraCapture';
@@ -36,6 +36,15 @@ function App() {
   const [copied, setCopied] = useState(false);
   
   const fileInputRef = useRef(null);
+
+  // Idioma real del OCR: en modo etiqueta siempre inglés (mejor para códigos y números)
+  const ocrLang = mode === 'label' ? 'eng' : lang;
+
+  // Precarga el motor en segundo plano para que la primera lectura sea inmediata
+  useEffect(() => {
+    const id = setTimeout(() => preloadEngine(ocrLang), 300);
+    return () => clearTimeout(id);
+  }, [ocrLang]);
 
   // Cargar historial y tema al iniciar
   useEffect(() => {
@@ -117,24 +126,14 @@ function App() {
     setLoading(true);
     setProgress(0);
 
-    let worker;
     try {
-      // En modo etiqueta siempre inglés: lee mejor códigos y números que el modelo en español
-      worker = await Tesseract.createWorker(mode === 'label' ? 'eng' : lang, 1, {
-        logger: m => {
-          if (m.status === 'recognizing text') {
-            setProgress(Math.round(m.progress * 100));
-          }
-        }
+      // Motor reutilizable (ya precargado). En modo etiqueta siempre inglés: lee mejor
+      // códigos y números. psm 11 = texto disperso (etiquetas); 3 = página completa.
+      let extractedText = await recognizeText(processedImage, {
+        lang: ocrLang,
+        psm: mode === 'label' ? '11' : '3',
+        onProgress: setProgress,
       });
-      // 11 = texto disperso (etiquetas con pocas líneas sueltas); 3 = página completa
-      await worker.setParameters({
-        tessedit_pageseg_mode: mode === 'label' ? '11' : '3',
-        preserve_interword_spaces: '1'
-      });
-      const result = await worker.recognize(processedImage);
-
-      let extractedText = result.data.text;
       if (mode === 'label') {
         // Descarta líneas de ruido: sin al menos 2 letras/números seguidos
         extractedText = extractedText
@@ -160,7 +159,6 @@ function App() {
       console.error(error);
       alert('Error de OCR. Verifica tu conexión (la primera vez descarga el idioma) o la calidad de la imagen.');
     } finally {
-      if (worker) await worker.terminate();
       setLoading(false);
     }
   };
