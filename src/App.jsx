@@ -119,7 +119,8 @@ function App() {
 
     let worker;
     try {
-      worker = await Tesseract.createWorker(lang, 1, {
+      // En modo etiqueta siempre inglés: lee mejor códigos y números que el modelo en español
+      worker = await Tesseract.createWorker(mode === 'label' ? 'eng' : lang, 1, {
         logger: m => {
           if (m.status === 'recognizing text') {
             setProgress(Math.round(m.progress * 100));
@@ -212,9 +213,11 @@ function App() {
           />
           
           <select 
-            value={lang} 
+            value={mode === 'label' ? 'eng' : lang}
             onChange={(e) => setLang(e.target.value)}
-            className="px-4 py-3 rounded-lg border border-gray-300 dark:bg-gray-800 dark:border-gray-600 w-full md:w-auto"
+            disabled={mode === 'label'}
+            title={mode === 'label' ? 'En modo etiqueta se usa inglés (mejor para códigos y números)' : ''}
+            className="px-4 py-3 rounded-lg border border-gray-300 dark:bg-gray-800 dark:border-gray-600 w-full md:w-auto disabled:opacity-60"
           >
             <option value="spa">Español</option>
             <option value="eng">Inglés</option>
