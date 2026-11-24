@@ -12,6 +12,8 @@ function App() {
   const [loading, setLoading] = useState(false);
   const [progress, setProgress] = useState(0);
   const [lang, setLang] = useState('spa');
+  const [sourceFile, setSourceFile] = useState(null);
+  const [mode, setMode] = useState('label'); // 'label' = etiquetas/códigos, 'document' = texto impreso
   const [darkMode, setDarkMode] = useState(false);
   const [history, setHistory] = useState([]);
   const [copied, setCopied] = useState(false);
@@ -41,40 +43,57 @@ function App() {
     }
   };
 
-  const handleImageUpload = async (e) => {
+  // Reprocesa la imagen cuando cambia el archivo o el tipo de contenido
+  useEffect(() => {
+    if (!sourceFile) return;
+    let cancelled = false;
+    preprocessImage(sourceFile, mode)
+      .then((p) => { if (!cancelled) setProcessedImage(p); })
+      .catch(() => alert('Error al procesar la imagen. Intenta con otra foto.'));
+    return () => { cancelled = true; };
+  }, [sourceFile, mode]);
+
+  const handleImageUpload = (e) => {
     const file = e.target.files[0];
     if (file) {
       setImage(URL.createObjectURL(file));
       setText('');
       setCopied(false);
-      try {
-        const processed = await preprocessImage(file);
-        setProcessedImage(processed);
-      } catch (err) {
-        alert("Error al procesar la imagen. Intenta con otra foto.");
-      }
+      setSourceFile(file);
     }
+    e.target.value = ''; // permite volver a elegir la misma foto
   };
 
   const runOCR = async () => {
     if (!processedImage) return;
     setLoading(true);
     setProgress(0);
-    
+
+    let worker;
     try {
-      const result = await Tesseract.recognize(
-        processedImage,
-        lang,
-        {
-          logger: m => {
-            if (m.status === 'recognizing text') {
-              setProgress(Math.round(m.progress * 100));
-            }
+      worker = await Tesseract.createWorker(lang, 1, {
+        logger: m => {
+          if (m.status === 'recognizing text') {
+            setProgress(Math.round(m.progress * 100));
           }
         }
-      );
-      
-      const extractedText = result.data.text;
+      });
+      // 11 = texto disperso (etiquetas con pocas líneas sueltas); 3 = página completa
+      await worker.setParameters({
+        tessedit_pageseg_mode: mode === 'label' ? '11' : '3',
+        preserve_interword_spaces: '1'
+      });
+      const result = await worker.recognize(processedImage);
+
+      let extractedText = result.data.text;
+      if (mode === 'label') {
+        // Descarta líneas de ruido: sin al menos 2 letras/números seguidos
+        extractedText = extractedText
+          .split('\n')
+          .map(l => l.trim())
+          .filter(l => /[A-Za-z0-9]{2,}/.test(l))
+          .join('\n');
+      }
       setText(extractedText);
       
       // Guardar en historial
@@ -92,6 +111,7 @@ function App() {
       console.error(error);
       alert('Error de OCR. Verifica tu conexión (la primera vez descarga el idioma) o la calidad de la imagen.');
     } finally {
+      if (worker) await worker.terminate();
       setLoading(false);
     }
   };
@@ -145,6 +165,15 @@ function App() {
           >
             <option value="spa">Español</option>
             <option value="eng">Inglés</option>
+          </select>
+
+          <select
+            value={mode}
+            onChange={(e) => setMode(e.target.value)}
+            className="px-4 py-3 rounded-lg border border-gray-300 dark:bg-gray-800 dark:border-gray-600 w-full md:w-auto"
+          >
+            <option value="label">Etiqueta / códigos</option>
+            <option value="document">Documento impreso</option>
           </select>
         </div>
 
