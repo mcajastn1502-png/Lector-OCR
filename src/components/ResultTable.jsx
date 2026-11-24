@@ -1,9 +1,10 @@
 import React, { useState, useEffect } from 'react';
-import { Trash2, Plus, Download } from 'lucide-react';
+import { Trash2, Plus, Download, ListPlus } from 'lucide-react';
 import { exportToExcel } from '../utils/exportUtils';
 
-const ResultTable = ({ initialText }) => {
+const ResultTable = ({ initialText, onAddRecord }) => {
   const [rows, setRows] = useState([]);
+  const [notice, setNotice] = useState(null); // { ok, msg } tras agregar al registro
 
   // Parseo inicial: separa por líneas. Intentamos separar por tabulaciones o espacios dobles
   useEffect(() => {
@@ -20,8 +21,19 @@ const ResultTable = ({ initialText }) => {
           };
         });
       setRows(parsedRows);
+      setNotice(null);
     }
   }, [initialText]);
+
+  // Agrega la captura (todas las celdas no vacías de la tabla) como un registro
+  const handleAddRecord = () => {
+    const valores = rows.flatMap(({ col1, col2 }) => [col1, col2]).map(v => v.trim()).filter(Boolean);
+    if (valores.length === 0) {
+      setNotice({ ok: false, msg: 'No hay datos para agregar.' });
+      return;
+    }
+    setNotice(onAddRecord(valores));
+  };
 
   const handleEdit = (id, field, value) => {
     setRows(rows.map(row => row.id === id ? { ...row, [field]: value } : row));
@@ -90,6 +102,29 @@ const ResultTable = ({ initialText }) => {
       <button onClick={addRow} className="mt-3 flex items-center gap-1 text-primary text-sm font-semibold hover:underline">
         <Plus size={16} /> Agregar Fila
       </button>
+
+      {onAddRecord && (
+        <div className="mt-4">
+          <button
+            onClick={handleAddRecord}
+            className="w-full flex items-center justify-center gap-2 bg-primary text-white py-3 rounded-lg font-bold hover:bg-blue-700 transition"
+          >
+            <ListPlus size={18} /> Agregar al registro
+          </button>
+          {notice && (
+            <p
+              role="status"
+              className={`mt-2 text-sm rounded-lg p-2 ${
+                notice.ok
+                  ? 'bg-green-50 text-green-800 dark:bg-green-900/40 dark:text-green-200'
+                  : 'bg-red-50 text-red-800 dark:bg-red-900/40 dark:text-red-200'
+              }`}
+            >
+              {notice.msg}
+            </p>
+          )}
+        </div>
+      )}
     </div>
   );
 };

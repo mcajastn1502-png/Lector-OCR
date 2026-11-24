@@ -4,8 +4,18 @@ import { Camera, Upload, Loader2, Sun, Moon, Copy, CheckCircle, Crop } from 'luc
 import { preprocessImage } from './utils/imageUtils';
 import CameraCapture from './components/CameraCapture';
 import CropEditor from './components/CropEditor';
+import RecordsPanel from './components/RecordsPanel';
 import ResultTable from './components/ResultTable';
 import HistoryList from './components/HistoryList';
+
+function loadJSON(key, fallback) {
+  try {
+    const raw = localStorage.getItem(key);
+    return raw ? JSON.parse(raw) : fallback;
+  } catch {
+    return fallback;
+  }
+}
 
 function App() {
   const [image, setImage] = useState(null);
@@ -15,6 +25,8 @@ function App() {
   const [progress, setProgress] = useState(0);
   const [lang, setLang] = useState('spa');
   const [sourceFile, setSourceFile] = useState(null);
+  const [records, setRecords] = useState(() => loadJSON('ocr_records', []));
+  const [session, setSession] = useState(() => loadJSON('ocr_session', { bodega: '', responsable: '' }));
   const [showCamera, setShowCamera] = useState(false);
   const [cropState, setCropState] = useState(null); // { file, initial } mientras se edita el recorte
   const [original, setOriginal] = useState(null);   // { file, rect } para poder reencuadrar
@@ -35,6 +47,27 @@ function App() {
       document.documentElement.classList.add('dark');
     }
   }, []);
+
+  // Persistencia del registro acumulado y de la bodega/responsable
+  useEffect(() => { localStorage.setItem('ocr_records', JSON.stringify(records)); }, [records]);
+  useEffect(() => { localStorage.setItem('ocr_session', JSON.stringify(session)); }, [session]);
+
+  // Agrega una captura al registro; rechaza duplicados exactos
+  const addRecord = (valores) => {
+    const key = valores.join('|').toUpperCase();
+    if (records.some(r => r.valores.join('|').toUpperCase() === key)) {
+      return { ok: false, msg: 'Estos datos ya están en el registro (duplicado). No se agregaron.' };
+    }
+    const record = {
+      id: `${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
+      valores,
+      bodega: session.bodega.trim(),
+      responsable: session.responsable.trim(),
+      fecha: new Date().toLocaleString('es-EC'),
+    };
+    setRecords(prev => [...prev, record]);
+    return { ok: true, msg: `Agregado al registro (N.º ${records.length + 1}). Toma otra foto para seguir.` };
+  };
 
   const toggleDarkMode = () => {
     const newMode = !darkMode;
@@ -244,7 +277,16 @@ function App() {
         )}
 
         {/* Tabla Editable y Exportación */}
-        {text && <ResultTable initialText={text} />}
+        {text && <ResultTable initialText={text} onAddRecord={addRecord} />}
+
+        {/* Registro acumulado y exportación a Excel */}
+        <RecordsPanel
+          records={records}
+          session={session}
+          onSessionChange={setSession}
+          onDelete={(id) => setRecords(prev => prev.filter(r => r.id !== id))}
+          onClear={() => setRecords([])}
+        />
 
         {/* Historial */}
         <HistoryList 
