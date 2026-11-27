@@ -32,6 +32,7 @@ export function recordsToRows(records) {
       'FECHA Y HORA': r.fecha,
       'BODEGA / UBICACIÓN': r.bodega,
       'RESPONSABLE': r.responsable,
+      'TIPO': r.tipo || 'Texto OCR',
     };
     for (let k = 0; k < maxValues; k++) row[`DATO ${k + 1}`] = r.valores[k] ?? '';
     return row;
@@ -41,8 +42,8 @@ export function recordsToRows(records) {
 export function exportRecordsXLSX(records) {
   const rows = recordsToRows(records);
   const ws = XLSX.utils.json_to_sheet(rows);
-  const dataCols = Object.keys(rows[0]).length - 4;
-  ws['!cols'] = [{ wch: 6 }, { wch: 20 }, { wch: 24 }, { wch: 26 }, ...Array(dataCols).fill({ wch: 24 })];
+  const dataCols = Object.keys(rows[0]).length - 5;
+  ws['!cols'] = [{ wch: 6 }, { wch: 20 }, { wch: 24 }, { wch: 26 }, { wch: 14 }, ...Array(dataCols).fill({ wch: 24 })];
   const wb = XLSX.utils.book_new();
   XLSX.utils.book_append_sheet(wb, ws, 'Registros');
   XLSX.writeFile(wb, `Registros_OCR_${today()}.xlsx`);
@@ -51,8 +52,10 @@ export function exportRecordsXLSX(records) {
 export function exportRecordsCSV(records) {
   const rows = recordsToRows(records);
   const keys = Object.keys(rows[0]);
+  // Un QR puede traer texto como "=...": se neutraliza para que Excel no lo ejecute como fórmula
+  const safe = (v) => String(v ?? '').replace(/^(?=[=+@\t\r]|-(?!\d))/, "'");
   const body = [keys, ...rows.map((r) => keys.map((k) => r[k]))]
-    .map((a) => a.map((v) => `"${String(v ?? '').replace(/"/g, '""')}"`).join(';'))
+    .map((a) => a.map((v) => `"${safe(v).replace(/"/g, '""')}"`).join(';'))
     .join('\r\n');
   // BOM para que Excel respete tildes y eñes
   const blob = new Blob(['﻿' + body], { type: 'text/csv;charset=utf-8' });

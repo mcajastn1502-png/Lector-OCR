@@ -7,6 +7,9 @@ import CropEditor from './components/CropEditor';
 import RecordsPanel from './components/RecordsPanel';
 import ResultTable from './components/ResultTable';
 import HistoryList from './components/HistoryList';
+import BarcodeScanner from './components/BarcodeScanner';
+import CodeResults from './components/CodeResults';
+import { preloadBarcode, readCodes } from './utils/barcode';
 
 function loadJSON(key, fallback) {
   try {
@@ -30,7 +33,11 @@ function App() {
   const [showCamera, setShowCamera] = useState(false);
   const [cropState, setCropState] = useState(null); // { file, initial } mientras se edita el recorte
   const [original, setOriginal] = useState(null);   // { file, rect } para poder reencuadrar
-  const [mode, setMode] = useState('label'); // 'label' = etiquetas/códigos, 'document' = texto impreso
+  const [mode, setMode] = useState(() => loadJSON('ocr_mode', 'label')); // 'label' | 'document' | 'barcode'
+  const [continuous, setContinuous] = useState(() => loadJSON('ocr_continuous', true));
+  const [codeResult, setCodeResult] = useState(null); // { key, codes } pendientes de revisar
+  const [codeMessage, setCodeMessage] = useState('');
+  const isBarcode = mode === 'barcode';
   const [darkMode, setDarkMode] = useState(false);
   const [history, setHistory] = useState([]);
   const [copied, setCopied] = useState(false);
@@ -57,9 +64,23 @@ function App() {
 
   // Precarga el motor en segundo plano para que la primera lectura sea inmediata
   useEffect(() => {
+    if (isBarcode) return undefined;
     const id = setTimeout(() => preloadEngine(ocrLang), 300);
     return () => clearTimeout(id);
-  }, [ocrLang]);
+  }, [ocrLang, isBarcode]);
+
+  // El lector de códigos también se descarga al inicio, para que funcione sin conexión
+  useEffect(() => {
+    const id = setTimeout(() => preloadBarcode().catch(() => {}), 1500);
+    return () => clearTimeout(id);
+  }, []);
+
+  useEffect(() => { localStorage.setItem('ocr_mode', JSON.stringify(mode)); }, [mode]);
+  useEffect(() => { localStorage.setItem('ocr_continuous', JSON.stringify(continuous)); }, [continuous]);
+
+  // Copia al día de los registros: el escaneo continuo agrega varios muy seguidos
+  const recordsRef = useRef(records);
+  recordsRef.current = records;
 
   // Cargar historial y tema al iniciar
   useEffect(() => {
@@ -85,31 +106,78 @@ function App() {
     setSourceFile(null);
     setOriginal(null);
     setEmptyResult(false);
+    setCodeResult(null);
+    setCodeMessage('');
     window.scrollTo({ top: 0 });
     if (source === 'camera') setShowCamera(true);
     else fileInputRef.current?.click();
   };
 
-  // Agrega una captura al registro; rechaza duplicados exactos.
-  // next = true: tras agregar, vuelve a abrir la cámara (o el selector de archivos).
-  const addRecord = (valores, next = false) => {
-    const key = valores.join('|').toUpperCase();
-    if (records.some(r => r.valores.join('|').toUpperCase() === key)) {
-      return { ok: false, msg: 'Estos datos ya están en el registro (duplicado). No se agregaron.' };
-    }
+  // Inserta un registro si no está repetido. Usa la ref para ver siempre la lista al día.
+  const insertRecord = (valores, tipo) => {
+    const isOcr = (t) => !t || t === 'Texto OCR';
+    const b = valores.join('|');
+    const duplicated = recordsRef.current.some((r) => {
+      const a = r.valores.join('|');
+      // En códigos las mayúsculas importan; con texto OCR se compara sin distinguirlas
+      return isOcr(tipo) || isOcr(r.tipo) ? a.toUpperCase() === b.toUpperCase() : a === b;
+    });
+    if (duplicated) return { ok: false };
     const record = {
       id: `${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
       valores,
+      tipo,
       bodega: session.bodega.trim(),
       responsable: session.responsable.trim(),
       fecha: new Date().toLocaleString('es-EC'),
     };
-    setRecords(prev => [...prev, record]);
+    recordsRef.current = [...recordsRef.current, record];
+    setRecords(recordsRef.current);
+    return { ok: true, id: record.id, n: recordsRef.current.length };
+  };
+
+  // Agrega los códigos revisados (un registro por código)
+  const addCodes = (codes, next = false) => {
+    const results = codes.map((c) => insertRecord([c.value], c.type));
+    const ok = results.filter((r) => r.ok).length;
+    const dup = results.length - ok;
+    if (ok === 0) return { ok: false, msg: 'Ya están en el registro (duplicado). No se agregaron.' };
+    const msg = `Agregados: ${ok}${dup ? ` · duplicados omitidos: ${dup}` : ''}`;
+    if (next) goNext(msg);
+    return { ok: true, msg };
+  };
+
+  const showCodes = (codes) => {
+    setCodeMessage('');
+    setCodeResult({ key: Date.now(), codes });
+    setTimeout(() => resultRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' }), 150);
+  };
+
+  // Cambiar de modo descarta la captura en pantalla (los registros se conservan)
+  const changeMode = (value) => {
+    setMode(value);
+    setText('');
+    setImage(null);
+    setProcessedImage(null);
+    setSourceFile(null);
+    setOriginal(null);
+    setEmptyResult(false);
+    setCodeResult(null);
+    setCodeMessage('');
+  };
+
+  // Agrega una captura al registro; rechaza duplicados exactos.
+  // next = true: tras agregar, vuelve a abrir la cámara (o el selector de archivos).
+  const addRecord = (valores, next = false) => {
+    const res = insertRecord(valores, 'Texto OCR');
+    if (!res.ok) {
+      return { ok: false, msg: 'Estos datos ya están en el registro (duplicado). No se agregaron.' };
+    }
     if (next) {
-      goNext(`Agregado al registro (N.º ${records.length + 1})`);
+      goNext(`Agregado al registro (N.º ${res.n})`);
       return { ok: true, msg: 'Agregado' };
     }
-    return { ok: true, msg: `Agregado al registro (N.º ${records.length + 1}). Toma otra foto para seguir.` };
+    return { ok: true, msg: `Agregado al registro (N.º ${res.n}). Toma otra foto para seguir.` };
   };
 
   const toggleDarkMode = () => {
@@ -139,7 +207,19 @@ function App() {
     const file = e.target.files[0];
     if (file) {
       setSource('file');
-      setCropState({ file, initial: undefined });
+      if (isBarcode) {
+        // Los códigos se leen directamente de la foto, sin recorte ni preprocesado
+        setCodeResult(null);
+        setCodeMessage('Buscando códigos…');
+        readCodes(file)
+          .then((codes) => {
+            if (codes.length) showCodes(codes);
+            else setCodeMessage('No se encontró ningún código en la imagen. Acércate más o evita reflejos.');
+          })
+          .catch(() => setCodeMessage('No se pudo leer la imagen. Intenta con otra foto.'));
+      } else {
+        setCropState({ file, initial: undefined });
+      }
     }
     e.target.value = ''; // permite volver a elegir la misma foto
   };
@@ -259,7 +339,7 @@ function App() {
             onClick={() => setShowCamera(true)}
             className="flex items-center gap-2 bg-primary text-white px-6 py-3 rounded-lg shadow hover:bg-blue-700 transition w-full md:w-auto justify-center"
           >
-            <Camera size={20} /> Abrir cámara
+            <Camera size={20} /> {isBarcode ? 'Abrir escáner' : 'Abrir cámara'}
           </button>
           <button
             onClick={() => fileInputRef.current.click()}
@@ -275,7 +355,8 @@ function App() {
             className="hidden"
           />
           
-          <select 
+          {!isBarcode && (
+          <select
             value={mode === 'label' ? 'eng' : lang}
             onChange={(e) => setLang(e.target.value)}
             disabled={mode === 'label'}
@@ -285,26 +366,35 @@ function App() {
             <option value="spa">Español</option>
             <option value="eng">Inglés</option>
           </select>
+          )}
 
           <select
             value={mode}
-            onChange={(e) => setMode(e.target.value)}
+            onChange={(e) => changeMode(e.target.value)}
+            aria-label="Tipo de lectura"
             className="px-4 py-3 rounded-lg border border-gray-300 dark:bg-gray-800 dark:border-gray-600 w-full md:w-auto"
           >
             <option value="label">Etiqueta / códigos</option>
             <option value="document">Documento impreso</option>
+            <option value="barcode">Código de barras / QR</option>
           </select>
         </div>
 
         <label className="flex items-center gap-2 text-sm cursor-pointer select-none -mt-3">
           <input
             type="checkbox"
-            checked={reviewCrop}
-            onChange={(e) => setReviewCrop(e.target.checked)}
+            checked={isBarcode ? continuous : reviewCrop}
+            onChange={(e) => (isBarcode ? setContinuous : setReviewCrop)(e.target.checked)}
             className="h-5 w-5 accent-blue-600"
           />
-          Revisar recorte antes de leer
+          {isBarcode ? 'Escaneo continuo (agrega cada código solo)' : 'Revisar recorte antes de leer'}
         </label>
+
+        {isBarcode && codeMessage && (
+          <p role="status" className="w-full max-w-2xl text-sm rounded-lg p-3 bg-sky-50 text-sky-900 dark:bg-sky-900/40 dark:text-sky-100">
+            {codeMessage}
+          </p>
+        )}
 
         {/* Vista Previa */}
         {processedImage && (
@@ -361,6 +451,8 @@ function App() {
 
         {/* Tabla Editable y Exportación */}
         {text && <ResultTable initialText={text} onAddRecord={addRecord} />}
+
+        {codeResult && <CodeResults key={codeResult.key} codes={codeResult.codes} onAdd={addCodes} />}
         </div>
 
         {/* Registro acumulado y exportación a Excel */}
@@ -390,8 +482,22 @@ function App() {
         </div>
       )}
 
-      {showCamera && (
+      {showCamera && !isBarcode && (
         <CameraCapture onCapture={handleCameraCapture} onClose={() => setShowCamera(false)} />
+      )}
+      {showCamera && isBarcode && (
+        <BarcodeScanner
+          continuous={continuous}
+          onContinuousChange={setContinuous}
+          onResult={(codes) => {
+            setShowCamera(false);
+            setSource('camera');
+            showCodes(codes);
+          }}
+          onAdd={(code) => insertRecord([code.value], code.type)}
+          onUndo={(id) => setRecords((prev) => prev.filter((r) => r.id !== id))}
+          onClose={() => setShowCamera(false)}
+        />
       )}
       {cropState && (
         <CropEditor

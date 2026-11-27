@@ -47,7 +47,7 @@ const RecordsPanel = ({ records, session, onSessionChange, onDelete, onClear }) 
 
       {records.length === 0 ? (
         <p className="text-sm text-gray-500 dark:text-gray-400 py-3">
-          Aún no hay registros. Extrae el texto de una imagen y pulsa “Agregar al registro”.
+          Aún no hay registros. Lee una etiqueta o un código y agrégalo.
         </p>
       ) : (
         <>
@@ -65,7 +65,10 @@ const RecordsPanel = ({ records, session, onSessionChange, onDelete, onClear }) 
                 {records.map((r, i) => (
                   <tr key={r.id} className="border-t dark:border-gray-700 align-top">
                     <td className="px-2 py-2">{i + 1}</td>
-                    <td className="px-2 py-2 break-words">{r.valores.join(' · ')}</td>
+                    <td className="px-2 py-2 break-all">
+                      {r.valores.join(' · ')}
+                      <span className="block text-xs text-gray-500 dark:text-gray-400">{r.tipo || 'Texto OCR'}</span>
+                    </td>
                     <td className="px-2 py-2">{r.bodega || '—'}</td>
                     <td className="px-1 py-1">
                       <button
